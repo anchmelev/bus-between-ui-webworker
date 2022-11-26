@@ -60,7 +60,7 @@ export class BusWorker {
     return;
   }
 
-  private handleSendMsgCommand({ messageId, serviceName, methodName, args }: SendMsgPayload): void {
+  private async handleSendMsgCommand({ messageId, serviceName, methodName, args }: SendMsgPayload): Promise<void> {
     if (!this.getService) return;
 
     const service = this.getService(serviceName);
@@ -70,14 +70,18 @@ export class BusWorker {
 
     const key = this.getKeyMap(messageId, serviceName, methodName);
     try {
-      const value = (service as DictionaryFunction)?.[methodName](...args);
+      const returnValue = (service as DictionaryFunction)?.[methodName](...args);
 
-      if (!isObservable(value)) {
-        self.postMessage?.({ type: "RETURN_NEXT", payload: { value: value, messageId } } as ReturnNextCommand);
+      if (returnValue instanceof Promise) {
+        const value = await returnValue;
+        self.postMessage?.({ type: "RETURN_NEXT", payload: { value, messageId } } as ReturnNextCommand);
+        return;
+      } else if (!isObservable(returnValue)) {
+        self.postMessage?.({ type: "RETURN_NEXT", payload: { value: returnValue, messageId } } as ReturnNextCommand);
         return;
       }
 
-      const subs = value.subscribe({
+      const subs = returnValue.subscribe({
         next: (value) =>
           self.postMessage?.({ type: "RETURN_NEXT", payload: { value, messageId } } as ReturnNextCommand),
         error: (eMsg) => {

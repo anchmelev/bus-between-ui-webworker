@@ -1,4 +1,4 @@
-class WebpackWorker extends Worker {
+class BusWorker extends Worker {
   constructor();
 }
 

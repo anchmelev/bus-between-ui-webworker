@@ -15,19 +15,35 @@ export const ChartPage = () => {
   const [chartData, setChartData] = useState<UserCommentChartData[]>([]);
 
   useEffect(() => {
-    const subscription$ = chartDataService.getDataChart().subscribe({
-      next: (v) => setChartData(v),
-      error: (message) => {
-        console.log("message", message);
+    // const subscription$ = chartDataService.getDataChart().subscribe({
+    //   next: (v) => setChartData(v),
+    //   error: (message) => {
+    //     console.log("message", message);
+    //     notification.error({
+    //       type: "error",
+    //       message: "Error",
+    //       description: message,
+    //     });
+    //   }
+    // });
+
+    // return () => subscription$.unsubscribe();
+
+    chartDataService
+      .getDataChartV2()
+      .then((x) => {
+        debugger;
+        setChartData(x);
+      })
+      .catch((e) => {
+        debugger;
+        console.log("message", e);
         notification.error({
           type: "error",
           message: "Error",
-          description: message,
+          description: e,
         });
-      }
-    });
-
-    return () => subscription$.unsubscribe();
+      });
   }, []);
 
   const option = useMemo(() => {

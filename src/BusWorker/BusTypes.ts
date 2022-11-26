@@ -47,3 +47,13 @@ export type SendCommand = InitCommand | SendMsgCommand | UnsubscribeCommand;
 
 export type ServiceGetter = (serviceIdentifier: string) => Object;
 export type InitEventHandler = () => void;
+
+export enum ReturnType {
+  promise,
+  rxjsObservable,
+}
+
+export type RegisterBusWorkerSettings = {
+  busType: typeof Worker;
+  useReturnTypes: ReturnType;
+};

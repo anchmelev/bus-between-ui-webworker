@@ -1,9 +1,17 @@
 import { Observable, Subject, Subscription } from "rxjs";
 import { generateId } from "./generateId";
-import { InitCommand, ReturnCommand, SendMsgCommand, UnsubscribeCommand } from "./BusTypes";
+import {
+  InitCommand,
+  RegisterBusWorkerSettings,
+  ReturnCommand,
+  ReturnType,
+  SendMsgCommand,
+  UnsubscribeCommand,
+} from "./BusTypes";
 
 type BusWorkerSettings = {
   instance: Worker | null;
+  returnType: ReturnType;
 };
 
 interface SubscriptionMeta {
@@ -18,26 +26,32 @@ export class BusUI {
   private constructor() {}
   static readonly instance = new BusUI();
 
-  registerBusWorkers(busTypes: typeof WebpackWorker[]) {
-    for (const busType of busTypes) {
+  registerBusWorkers(settings: RegisterBusWorkerSettings[]) {
+    for (const { busType, useReturnTypes } of settings) {
       this.busWorkerTypes.set(busType, {
         instance: null,
+        returnType: useReturnTypes,
       });
     }
   }
 
-  createFactoryService(busType: typeof WebpackWorker) {
-    const worker = this.getWorker(busType);
+  createFactoryService(busType: typeof BusWorker) {
+    const settings = this.getBusWorkerSettings(busType);
     return <T extends object>(serviceName: string): T => {
       return new Proxy<T>(new (class MockService {})() as T, {
         get: (target, property, receiver) => {
-          return (...args: any[]) => this.sendInvokeMessage(serviceName, property, [...args], worker as Worker);
+          return (...args: any[]) => this.sendInvokeMessage(serviceName, property, [...args], settings);
         },
       });
     };
   }
 
-  private sendInvokeMessage(serviceName: string, methodName: string | symbol, args: any[], worker: WebpackWorker) {
+  private sendInvokeMessage(
+    serviceName: string,
+    methodName: string | symbol,
+    args: any[],
+    settings: BusWorkerSettings
+  ) {
     const messageId = generateId();
     const command: SendMsgCommand = {
       type: "SEND_MSG",
@@ -49,13 +63,23 @@ export class BusUI {
       },
     };
 
-    worker.postMessage(command);
+    settings.instance?.postMessage(command);
     const dataSource = new Subject<unknown>();
-    this.pending.set(messageId, dataSource);
     const targetObs$ = dataSource.asObservable();
+    this.pending.set(messageId, dataSource);
+
+    if (settings.returnType === ReturnType.promise) {
+      return new Promise((resolve, reject) => {
+        targetObs$.subscribe({
+          next: (v) => resolve(v),
+          error: (e) => reject(e),
+          complete: () => dataSource.complete(),
+        });
+      });
+    }
 
     const dispose = () => {
-      worker.postMessage({ type: "UNSUBSCRIBE", payload: command.payload } as UnsubscribeCommand);
+      settings.instance?.postMessage({ type: "UNSUBSCRIBE", payload: command.payload } as UnsubscribeCommand);
       this.pending.delete(messageId);
       this.msgToSubMeta.delete(messageId);
     };
@@ -79,7 +103,7 @@ export class BusUI {
     });
   }
 
-  private getWorker(busType: typeof WebpackWorker): Worker {
+  private getBusWorkerSettings(busType: typeof BusWorker): BusWorkerSettings {
     const typeSettings = this.busWorkerTypes.get(busType);
     if (!typeSettings) {
       throw new Error(
@@ -93,9 +117,10 @@ export class BusUI {
       worker.postMessage({ type: "INIT" } as InitCommand);
       worker.addEventListener("message", this.handleWorkerMsg);
       this.busWorkerTypes.set(busType, { ...typeSettings, instance: worker });
+      typeSettings.instance = worker;
     }
 
-    return worker;
+    return typeSettings;
   }
 
   private handleWorkerMsg = ({ data }: MessageEvent<ReturnCommand>) => {
